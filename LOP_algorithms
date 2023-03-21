@@ -1,0 +1,374 @@
+d <- read.table("Cebe.lop.n30.5", header = FALSE, sep = "", dec = ".", skip = 1)
+d <- as.matrix(d)
+print(sum(d))
+####################################Implementación de los algoritmos############################
+# Constructivo
+
+constructivo <- function(input_matrix, max_iterations = 10000) {
+  start_time <- Sys.time()
+  auxiliar <- input_matrix
+  n <- nrow(input_matrix)
+  results <- matrix(0,n,n)
+  iter <- 1
+  for(i in c(1:(n*(n-1))/2)){
+      if (iter<= max_iterations){
+        pos <- which(auxiliar == max(auxiliar), arr.ind = TRUE)
+        results[pos[1,1], pos[1,2]] <- 1
+        auxiliar[pos[1,1], pos[1,2]] <- 0
+      }else{
+        break}
+      iter <- iter + 1
+  }
+  total <- sum(input_matrix*results)
+  end_time <- Sys.time()
+  time <- end_time - start_time
+  print(end_time - start_time)
+  return(c(total, time))
+}
+
+print(constructivo2(d,1000))
+
+# Random search
+
+random_search <- function(input_matrix, max_iterations = 10000) {
+  start_time <- Sys.time()
+  n <- nrow(input_matrix)
+  results <- matrix(0,n,n)
+  current_sum <- 0
+  for (i in 1:max_iterations) {
+        pos <- sample.int(length(input_matrix), n*(n-1)/2)
+        results[pos] <- 1
+        random_sum <- sum(input_matrix*results)
+        if (random_sum > current_sum) {
+          current_sum <- random_sum
+        }
+        results <- matrix(0,n,n)
+  }
+  end_time <- Sys.time()
+  time <- end_time - start_time
+  print(end_time - start_time)
+  return(c(current_sum, time))
+}
+
+
+print(random_search(d,1))
+
+
+# Local search
+
+## Objective function
+sum_above_diagonal <- function(input_matrix) {
+  n <- nrow(input_matrix)
+  total <- 0
+  for (i in 1:(n-1)) {
+    for (j in (i+1):n) {
+      total <- total + input_matrix[i, j]
+    }
+  }
+  return(total)
+}
+
+# Swap
+
+test_matrix <- matrix(c(0, 1, 2, 3, 4,
+                        5, 0, 6, 7, 8,
+                        9, 10, 0, 11, 12,
+                        13, 14, 15, 0, 16,
+                        17, 18, 19, 20, 0), nrow=5, byrow = TRUE)
+
+swap <- function(input_matrix, row1, col1, row2, col2) {
+  output_matrix <- input_matrix
+  output_matrix[row1, ] <- input_matrix[row2, ]
+  output_matrix[row2, ] <- input_matrix[row1, ]
+  auxiliar <- output_matrix
+  output_matrix[, col1] <- auxiliar[, col2]
+  output_matrix[, col2] <- auxiliar[, col1]
+  return(output_matrix)
+}
+
+print(swap(test_matrix, 2,1,3,4))
+
+# Insert
+
+library(miscTools)
+
+insert <- function(matrix, row, col, row_index, col_index) {
+  new_matrix <- matrix[-row,]
+  new_matrix <- insertRow(new_matrix, row_index, v = c(matrix[row,]))
+  auxiliar <- new_matrix
+  new_matrix <- auxiliar [,-col]
+  new_matrix <- insertCol(new_matrix, col_index, v = c(auxiliar[,col]))
+ 
+  return(new_matrix)
+}
+
+print(insert(test_matrix, 2,1,3,4))
+
+# Basic Local search
+local_search <- function(input_matrix, max_iterations) {
+  start_time <- Sys.time()
+  current_sum <- sum_above_diagonal(input_matrix)
+  for (i in 1:max_iterations) {
+      # Generate a random neighboring and apply swap
+      a <- sample(1:nrow(input_matrix), 1)
+      b <- sample(1:ncol(input_matrix), 1)
+      c <- sample(1:nrow(input_matrix), 1)
+      d <- sample(1:ncol(input_matrix), 1)
+      neighbor_matrix <- swap(input_matrix, a, b, c, d)
+      # neighbor_matrix <- insert(input_matrix, a, b, c, d)
+      
+      # Objective function
+      neighbor_sum <- sum_above_diagonal(neighbor_matrix)
+      
+      # We compare the current and the neigbor solution, if it is better we save it
+      if (neighbor_sum > current_sum) { #Greedy step
+        input_matrix <- neighbor_matrix
+        current_sum <- neighbor_sum
+      }
+  }
+  end_time <- Sys.time()
+  time <- end_time - start_time
+  print(end_time - start_time)
+  return(c(current_sum, time))
+}
+
+# Run the local search algorithm
+max_iter <- 1000
+result <- local_search(d, max_iter)
+print(result)
+
+
+# VNS
+
+vns <- function(input_matrix, max_iterations, k_max) {
+  start_time <- Sys.time()
+  current_matrix <- input_matrix
+  current_sum <- sum_above_diagonal(input_matrix)
+  neighborhood_size <- k_max
+  k <- 1
+  for (i in 1:max_iterations) {
+    # Generate initial solutions from the current neighborhood
+    neighborhood_solutions <- list()
+    for (j in 1:neighborhood_size) {
+      a <- sample(1:nrow(current_matrix), 1)
+      b <- sample(1:ncol(current_matrix), 1)
+      c <- sample(1:nrow(current_matrix), 1)
+      d <- sample(1:ncol(current_matrix), 1)
+      neighbor_matrix <- swap(current_matrix, a, b, c, d)
+      # neighbor_matrix <- insert(input_matrix, a, b, c, d)
+       neighborhood_solutions[[j]] <- neighbor_matrix
+    }
+    
+    # Evaluate each solution
+    neighborhood_sums <- sapply(neighborhood_solutions, sum_above_diagonal)
+    
+    # Find best solution
+    best_sum <- max(neighborhood_sums)
+    best_index <- which(neighborhood_sums == best_sum)[1] # select first best index in case of ties
+    best_solution <- neighborhood_solutions[[best_index]]
+    
+    # If the best solution is better, move to that solution
+    if (best_sum > current_sum) {
+      current_matrix <- best_solution
+      current_sum <- best_sum
+      k <- 1 # reset counter
+    } else {
+      k <- k + 1 # increment counter
+    }
+    
+    # If k reaches k_max break
+    if (k == k_max) {
+      break
+    }
+  }
+  end_time <- Sys.time()
+  time <- end_time - start_time
+  print(end_time - start_time)
+  return(c(current_sum, time))
+}
+# Run the VNS
+max_iter <- 10000
+result <- vns(d, max_iter, 10)
+print(result)
+
+#Algoritmo ACO
+
+# Define la funciÃ³n objetivo: suma de entradas por encima de la diagonal principal
+lop <- function(B, sigma) {
+  n <- nrow(B)
+  s <- 0
+  for (i in 1:(n-1)) {
+    for (j in (i+1):n) {
+      s <- s + B[sigma[i], sigma[j]]
+    }
+  }
+  return(s)
+}
+#Implementa el algoritmo de optimizaciÃ³n ACO para el problema LOP
+aco_lop <- function(B, n_ants=10, max_iter=100, alpha=1, beta=1, rho=0.1) {
+  start_time <- Sys.time()
+  n <- nrow(B)
+  tau <- matrix(runif(n*n)/100, n, n) # inicializa el rastro de feromonas
+  best_sol <- NULL
+  best_val <- -Inf
+  
+  for (iter in 1:max_iter) {
+    # Inicializa soluciones de las hormigas
+    solutions <- matrix(0, n_ants, n)
+    for (ant in 1:n_ants) {
+      solutions[ant,] <- sample(n)
+    }
+    
+    # EvalÃºa las soluciones
+    values <- sapply(1:n_ants, function(i) lop(B, solutions[i,]))
+    
+    # Actualiza las feromonas
+    delta_tau <- matrix(0, n, n)
+    for (ant in 1:n_ants) {
+      sigma <- solutions[ant,]
+      for (i in 1:(n-1)) {
+        for (j in (i+1):n) {
+          delta_tau[sigma[i], sigma[j]] <- delta_tau[sigma[i], sigma[j]] + values[ant]
+        }
+      }
+    }
+    tau <- (1-rho)*tau + rho*delta_tau
+    
+    # Escoger siguiente soluciÃ³n
+    prob <- matrix(0, n_ants, n)
+    for (ant in 1:n_ants) {
+      sigma <- solutions[ant,]
+      for (i in 1:n) {
+        for (j in 1:n) {
+          if (i != j && sigma[i] == j) {
+            prob[ant, j] <- tau[i, j]^alpha * (1/lop(B, sigma))^beta
+          }
+        }
+      }
+      prob[ant,] <- prob[ant,] + 1e-9 # AÃ±adimos constante pequeÃ±a para quitar probabilidades nulas
+      prob[ant,] <- prob[ant,]/sum(prob[ant,])
+    }
+    for (ant in 1:n_ants) {
+      solutions[ant,] <- sample(n, size=n, prob=prob[ant,], replace=FALSE)
+    }
+    
+    # Actualizamos soluciÃ³n ganadora
+    best_ant <- which.max(values)
+    if (values[best_ant] > best_val) {
+      best_sol <- solutions[best_ant,]
+      best_val <- values[best_ant]
+    }
+  }
+  end_time <- Sys.time()
+  time <- end_time - start_time
+  print(end_time - start_time)
+  # return(list(solution=best_sol, value=best_val))
+  return(c(best_val, time))
+}
+
+
+
+# Experiments
+
+matrix <- read.table("N-r250e0", header = FALSE, sep = "", dec = ".", skip = 1)
+matrix <- as.matrix(matrix)
+print(matrix)
+print(sum(matrix))
+
+# Constructive
+cons_value <- c()
+cons_time <- c()
+for (i in 1:10){
+  construc <- constructivo(matrix,10000000)
+  cons_value <- c(cons_value, construc[1])
+  cons_time <- c(cons_time, construc[2])
+}
+
+maxvalue_cons <- max(cons_value)
+meanvalue_cons <- mean(cons_value)
+sdvalue_cons <- sd(cons_value)
+mintime_cons <- min(cons_time)
+meantime_cons <- mean(cons_time)
+sdtime_cons <- sd(cons_time)
+
+print(c(round(maxvalue_cons,3),"&", round(meanvalue_cons,3), "&", round(sdvalue_cons,3), "&", round(mintime_cons,3), "&", round(meantime_cons,3), "&", round(sdtime_cons,3)))
+
+# Random search
+
+rand_value <- c()
+rand_time <- c()
+for (i in 1:10){
+  rand <- random_search(matrix,1000)
+  rand_value <- c(rand_value, rand[1])
+  rand_time <- c(rand_time, rand[2])
+}
+
+maxvalue_rand <- max(rand_value)
+meanvalue_rand <- mean(rand_value)
+sdvalue_rand <- sd(rand_value)
+mintime_rand <- min(rand_time)
+meantime_rand <- mean(rand_time)
+sdtime_rand <- sd(rand_time)
+
+print(c(round(maxvalue_rand,3),"&", round(meanvalue_rand,3), "&", round(sdvalue_rand), "&", round(mintime_rand,3), "&", round(meantime_rand,3), "&", round(sdtime_rand,3)))
+
+
+# Local search
+
+local_value <- c()
+local_time <- c()
+for (i in 1:10){
+  local <- local_search(matrix,1000)
+  local_value <- c(local_value, local[1])
+  local_time <- c(local_time, local[2])
+}
+
+maxvalue_local <- max(local_value)
+meanvalue_local <- mean(local_value)
+sdvalue_local <- sd(local_value)
+mintime_local <- min(local_time)
+meantime_local <- mean(local_time)
+sdtime_local <- sd(local_time)
+
+print(c(round(maxvalue_local,3),"&", round(meanvalue_local,3), "&", round(sdvalue_local,3), "&", round(mintime_local,3), "&", round(meantime_local,3), "&", round(sdtime_local,3)))
+
+# VNS
+
+vns_value <- c()
+vns_time <- c()
+for (i in 1:10){
+  vnss <- vns(matrix,10,100)
+  vns_value <- c(vns_value, vnss[1])
+  vns_time <- c(vns_time, vnss[2])
+}
+
+maxvalue_vns <- max(vns_value)
+meanvalue_vns <- mean(vns_value)
+sdvalue_vns <- sd(vns_value)
+# vns_time[9] <- vns_time[9] * 60
+# vns_time[7] <- vns_time[7] * 60
+# vns_time <- vns_time * 60
+mintime_vns <- min(vns_time)
+meantime_vns <- mean(vns_time)
+sdtime_vns <- sd(vns_time)
+
+
+
+print(c(round(maxvalue_vns,3),"&", round(meanvalue_vns,3), "&", round(sdvalue_vns,3), "&", round(mintime_vns,3), "&", round(meantime_vns,3), "&", round(sdtime_vns,3)))
+
+# ACO
+aco_value <- c()
+aco_time <- c()
+for (i in 1:10){
+  aco <- aco_lop (matrix, n_ants=10, max_iter=100)
+  aco_value <- c(aco_value, aco[1])
+  aco_time <- c(aco_time, aco[2])
+}
+
+maxvalue_aco <- max(aco_value)
+meanvalue_aco <- mean(aco_value)
+sdvalue_aco <- sd(aco_value)
+aco_time <- aco_time * 60
+mintime_aco <- min(aco_time)
+meantime_aco <- mean(aco_time)
+sdtime_aco <- sd(aco_time)
