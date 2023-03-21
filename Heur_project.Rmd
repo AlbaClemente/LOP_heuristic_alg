@@ -1,0 +1,178 @@
+---
+title: "Statistical Assessment of the Differences: Algorithms for LOP"
+author: "Alba Clemente"
+date: "`r Sys.Date()`"
+output: html_document
+---
+# Statistical Assessment of the Differences
+
+This rmd shows the use of the package `scmamp` to assess the statistical differences between the results obtained by 5 different algorithms in different instances of the LOP problem. 
+
+```{r , prompt=TRUE}
+library("scmamp")
+library("ggplot2")
+library("Rgraphviz")
+data
+```
+
+
+
+## Parametric vs. non-parametric
+
+One of the very first things we need to decide is whether we can safely use parametric tests to assess the differences between algorithms. This is quite a tricky question, as using parametric tests when the assumptions hold yields a more powerful test, but the opposite may be true if they do not hold.
+
+The first plot we can crate is a density plot, using the function `plotDensities`. This function uses a kernel density estimation (KDE) of the distribution of the samples to visualize it.
+
+```{r,prompt=TRUE , fig.width=7, fig.height=5, warning=FALSE}
+plotDensities (data=data, size=1.1)
+```
+
+
+An additional kind of plot we can use to visually check the goodness of fit of the samples is the classical quantile-quantile plot, which represents the empirical and theoretical quantiles---assuming a Gaussian distribution. When all the points lay in the diagonal of the plot, both theoretical and empirical quantiles are equal and, thus, we can assume that the data can be approached with a Gaussian distribution. We can create these plots for each column using the `qqplotGaussian` function.
+
+```{r,prompt=TRUE , fig.width=7, fig.height=5}
+qqplot <- qqplotGaussian (data[,"Constructive"], size=5 , col="orchid")
+qqplot + theme_classic()
+```
+
+
+
+## Testing for differences
+
+Once the question parametric/non parametric is clear, the next step should be the use of a statistical test to check whether there are differences among the algorithms or not. In other words, determine if there is one or more algorithms whose performance can be regarded as significantly different.
+
+
+```{r,prompt=TRUE}
+friedmanTest(data)
+imanDavenportTest(data)
+friedmanAlignedRanksTest(data)
+quadeTest(data)
+```
+
+
+## Pairwise differences
+
+Once we have verified that not all the performances of the algorithms are the same, the next step is analyzing which are different. For that, we have different possibilities. 
+
+### Nemenyi _post hoc_ test
+
+the Nemenyi test compares all the algorithms pairwise. It is the non parametric equivalent to the Tukey _post hoc_ test for ANOVA (which is also available through the `tukeyPost` function), and is based on the absolute difference of the average rankings of the classifiers. For a significance level $\alpha$ the test determines the critical difference (CD); if the difference between the average ranking of two algorithms is grater than CD, then the null hypothesis that the algorithms have the same performance is rejected. The function `nemenyiTest` computes the critical difference and all the pairwise differences.
+
+```{r,prompt=TRUE}
+test <- nemenyiTest (data, alpha=0.05)
+test
+test$diff.matrix
+abs(test$diff.matrix) > test$statistic
+```
+Now we visualize the results in a heatmap.
+```{r,prompt=TRUE}
+# Load required library
+library(PMCMRplus)
+
+# Input data
+data1 <- matrix(c(0.00,3.85, 1.10, 1.90, 3.15, 3.85, 0.00, 2.75, 1.95, 0.70,
+                 1.10, 2.75, 0.00, 0.80, 2.05, 1.90, 1.95, 0.80, 0.00, 1.25,
+                 3.15, 0.70, 2.05, 1.25, 0.00), nrow=5, ncol=5, byrow=TRUE)
+rownames(data1) <- c("Constructive", "Random_Search", "Basic_Local_Search", "VNS", "Ant_Colony")
+colnames(data1) <- c("Constructive", "Random_Search", "Basic_Local_Search", "VNS", "Ant_Colony")
+
+par(mfrow=c(1,2)) # set the plot layout to a single row with 2 columns
+heatmap(data1, Rowv=NA, Colv=NA, scale="none", cexRow=0.8, cexCol=0.8, main="Critical difference heatmap") 
+
+```
+
+As the code above shows, with a significance of $\alpha = 0.05$ any two algorithms with a difference in the mean rank above `r round(test$statistic,3)` will be regarded as non equal. The test also returns a matrix with all the pair differences, so it can be used to see for which pairs the null hypothesis is rejected. To visually check the differences, the _critical differece plot_. This kind of plot can be created using the `plotCD` function, which has two parameters, the data. matrix and the significance level. In the plot, those algorithms that are not joined by a line can be regarded as different.
+
+```{r,prompt=TRUE,fig.width=7 , fig.height=3}
+plotCD (data, alpha=0.05, cex=1.25)
+plotCD (data, alpha=0.01, cex=1)
+```
+
+Note that the text in the plot is defined in absolute size, while the rest is relative to the size of the plot. The default size (0.75) is tuned for a plot width of, roughly, 7 inches. In case the dimensions of the plot need to be bigger, the default size can be changed with the `cex` option, as in the example above (the dimension of these plots is 12x4 inches).
+
+This procedure is, among those implemented in the package, the one most conservative---i.e., the one with the less statistical power. Howerver, it provides an intiutive way to visualize the results. 
+
+### Corrected pairwise tests
+
+The second approach consists in using a classical test to assess all the pairwise differences between algorithms and then correct the p-values for multiple testing. In a parametric context the typicall election would be a paired t-test but, given that we cannot assume normality, we should use a non parametric test, such as Wilcoxon signed-rank test or the corresponding _post hoc_ tests for Friedman, Friedman's Aligned Ranks and Quade tests (see @garcia2008, Section 2.1 and @garcia2010, Section 5).
+
+The package includes the implementations of the _post hoc_ tests mentioned in @garcia2010 through functions `friedmanPost`, `friedmanAlignedRanksPost` and `quadePost`.
+
+```{r,prompt=TRUE}
+friedmanPost(data=data, control=NULL)
+quadePost(data=data, control=NULL)
+pv.matrix <- friedmanAlignedRanksPost(data, control=NULL)
+```
+
+For the sake of flexibility, there is a special wrapper function, `customPost`, that allows applying any test. This function has a special argument, `test`, that has to be a function with, at least, two arguments, `x` and `y`, that performs the desired test. For more information, type `?customPost`.
+
+The chosen test is applied to the $\frac{k(k-1)}{2}$ pairwise comparisons, where $k$ is the number of algorithms. Due to the multiple application of the test, some p-value correction method has to be used in order to control the _familywise error rate_. 
+
+There are many general methods to correct this p-values, such as the well known Bonferroni procedure or Holm's step-down method (@holm1979). However, these methods do not take into account the particular situation of pair-wise comparisons, where not any combination of null hypothesis can be true at the same time. As an example, suppose that we know that algorithms A and B are equal and, simultneously, A and C are also equal. Then, we cannot reject the hypothesis that A and C are equal.
+
+This problem was tackled by Juliet P. Shaffer (@shaffer1986). There are two procedures to correct the p-values, accoding to this paper. In the first one (sometimes called Shaffer static) the particular ordering of the null hypothesis is not taken into account and only the maximum number of simultaneous hypothesis is considered. The second one further limits the number of possible hypothesis by considering which particular hypothesis have been rejected. This increases the power of the method, but it is computationally very expensive. Instead of this procedure, in @garcia2008, the authors propose to use Bergmann and Hommel's method (@bergmann1988).
+
+These procedures can be applied to a matrix of raw p-values using functions `adjustShaffer` and `adjustBergmannHommel`.
+
+```{r,prompt=TRUE , warning=FALSE}
+pv.matrix
+adjustShaffer(pv.matrix)
+pv.adj <- adjustBergmannHommel(pv.matrix)
+pv.adj
+```
+
+The package also includes other correction methods, as we will see in the comparisons with a control algorithm. However, as these do not take into account the particular interactions between hypothesis, they are more restrictive approaches.
+
+Bergmann and Hommel's correction is extremely expensive method---in computational terms. However, the structures required to perform the correction are stored in the disk and, thus, it is computationally feasible up to 9 algorithms.
+
+
+## Comaprison with a control
+
+In some experimentations we will be interested in comparing a set of algorithms with a control one---our proposal, typically. All the tests presented in the previous section can be also used in this case, fixing the `control` parameter to one of the algorithms in the data. When this parameter is not fixed ---or set as `NULL`---, all the pairwise comparisons are performed, but when it takes a (valid) value, all the algorithms are compared with a reference.
+
+```{r,prompt=TRUE}
+friedmanAlignedRanksPost(data, control = "Random_Search")
+pv <- quadePost(data, control = 2)
+```
+
+As can be seen in the code above, the reference can be set either using the column name or its index. The values computed in this way can be corrected to cope with the problem of multiple testing. However, in this case, using Shaffer and Brgmann and Hommel procedures makes no sense, as we do not have all the comparisons. Instead, we can use any of the methods listed in @garcia2010. Some of these are implemented in the package and other are available through R's `p.adjust` function. In particular, the methods implemented are:
+
+```{r,prompt=TRUE}
+adjustHolland(pvalues=pv)
+adjustFinner(pvalues=pv)
+adjustRom(pvalues=pv, alpha=0.05)
+adjustLi(pvalues=pv)
+```
+
+## Summary
+
+This section shows a couple of examples of typical comparisons done in the context of algorithm comparisons. In the first one all the data is included in a single comparison while in the second the data will be grouped according the the problem features.
+
+The typical sequence of analysis includes, first, testing the presence of any algorithm that behaves differently, using a test that compares simultaneously all the algorithms. Then, provided that the null hypothesis is rejected, a _post hoc_ can be conducted. In case we can designate a control method, then the rest are tested against the control; in any other case, all the pairwise comparisons are performed.
+
+For the first example we will use the dataset from @garcia2008.
+
+```{r,full_process_1, prompt=TRUE}
+alpha <- 0.05
+summary(data)
+```
+
+Alternatively, we can use any of the other methods implemented (e.g., `imanDavenportTest` or `quadeTest`), or the wrapper function `multipleComparisonTest`:
+
+```{r,full_process_2, prompt=TRUE}
+multipleComparisonTest(data=data, test="iman")
+```
+
+
+Provided that the p-value obtained is below $\alpha$, if we have no control method then we can proceed with all the pairwise comparisons using the `postHocTest` wrapper function ---alternatively you can use directly the functions that implement all the tests and corrections. In this case we can select any test for the comparisons. For the p-value correction, any method can be used, but in this particular case it is advisable using Bergman Hommel's procedure if the number of algorithms to compare is 9 or less and Shaffer's method in case they are 10 or more. The reason is that these methods include the particularities of the pairwise comparisons in order to perform a less conservative correction, leading to statistically more powerfull methods.
+
+```{r,full_process_3, prompt=TRUE , fig.width=7 , fig.height=5}
+post.results <- postHocTest(data=data, test="aligned ranks", correct="bergmann", 
+                            use.rank=TRUE)
+post.results
+
+alg.order <- order(post.results$summary)
+plt <- plotPvalues(post.results$corrected.pval, alg.order=alg.order) 
+plt + labs(title=paste("Corrected p-values using Bergmann and Hommel procedure",sep=""))
+
+```
